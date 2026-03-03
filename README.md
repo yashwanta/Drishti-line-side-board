@@ -7,14 +7,14 @@ ________________________________________
 🖥️ What Is This?
 The Line Side Board (LSB) is a digital replacement for the paper-based production tracking boards used on the shop floor. It connects directly to the MES (Manufacturing Execution System) PostgreSQL database and displays live production data for machine operators and supervisors.
 What It Shows
-•	✅ Hourly production output vs. JPH (Jobs Per Hour) target
-•	✅ Cumulative actual vs. plan accumulation across the shift
-•	✅ Scrap count and First Pass Yield %
-•	✅ Average cycle time per part
-•	✅ Open quality/maintenance/safety issues
-•	✅ Downtime events with reason codes and durations
-•	✅ Operator hour confirmation (digital sign-off)
-•	✅ Live productivity bar chart
+✅ Hourly production output vs. JPH (Jobs Per Hour) target
+✅ Cumulative actual vs. plan accumulation across the shift
+✅ Scrap count and First Pass Yield %
+✅ Average cycle time per part
+✅ Open quality/maintenance/safety issues
+✅ Downtime events with reason codes and durations
+✅ Operator hour confirmation (digital sign-off)
+✅ Live productivity bar chart
 ________________________________________
 🏗️ Architecture
 Proxmox VE Host
