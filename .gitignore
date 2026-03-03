@@ -1,0 +1,5 @@
+.env
+lsb-api
+lsb-installer
+bin/
+*.log
