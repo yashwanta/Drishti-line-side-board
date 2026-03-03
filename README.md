@@ -1,4 +1,4 @@
-# README here 
+# README 
 📊 LINE SIDE BOARD — MES Digital Dashboard
 Real-time shop floor production monitoring dashboard
 Built with Go · PostgreSQL 17 · HTML5 · Deployed on Proxmox LXC
