@@ -1,0 +1,20 @@
+{
+  "name": "mes-lsb-frontend",
+  "version": "2.0.0",
+  "private": true,
+  "description": "MES Line Side Board — WM15 React SPA",
+  "scripts": {
+    "dev":     "vite",
+    "build":   "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react":     "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts":  "^2.12.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.3.4"
+  }
+}
