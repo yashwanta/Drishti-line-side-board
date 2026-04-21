@@ -1,5 +1,3 @@
+# Environment / secrets
 .env
-lsb-api
-lsb-installer
-bin/
-*.log
+*.env.local
