@@ -92,7 +92,11 @@ export default function Header({ status = 'connecting', shift = 2, resource = 'W
       `}</style>
       <header style={S.header}>
         <div style={S.left}>
+<<<<<<< HEAD
           <div style={S.title}>MES — LINE SIDE BOARD — {resource}</div>
+=======
+          <div style={S.title}>MES — LINE SIDE BOARD</div>
+>>>>>>> afadfd2 (fix: remove WM15 from header title)
           <div style={S.subtitle}>Manufacturing Execution System  ·  Real-Time Production Dashboard</div>
         </div>
 
