@@ -24,6 +24,10 @@ func main() {
 	// ── Routes ──────────────────────────────────────────────────────────────────
 	mux := http.NewServeMux()
 
+	// Serve React frontend from ./static/
+	staticDir := "./static"
+	mux.Handle("/", http.FileServer(http.Dir(staticDir)))
+
 	// Health
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
