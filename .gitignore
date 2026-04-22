@@ -1,3 +1,38 @@
+<<<<<<< HEAD
 # Environment / secrets
 .env
-*.env.local
+*.env.local
+=======
+# Environment / secrets
+.env
+*.env.local
+
+# Go
+lsb-api
+backend-go/lsb-api
+backend-go/static/
+bin/
+
+# Java / Maven
+backend-java/target/
+*.jar
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+
+# Logs
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# SSH deploy key (never commit)
+.ssh/
+
+# OS
+.DS_Store
+Thumbs.db
+>>>>>>> afadfd2 (fix: remove WM15 from header title)
