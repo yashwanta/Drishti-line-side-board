@@ -19,7 +19,7 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: '../backend-go/static',   // Go will serve this in production
+    outDir: '../exe/build',   // Go embeds this in the standalone exe
     emptyOutDir: true,
   }
 })

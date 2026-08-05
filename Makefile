@@ -2,7 +2,7 @@
 # Targets for local dev and plant deployment.
 # Prerequisites: Go 1.21+, Node 20+, Java 17+, Maven 3.9+, Docker (optional)
 
-.PHONY: help dev dev-go dev-java dev-frontend build-frontend \
+.PHONY: help dev dev-go dev-java dev-frontend build-frontend build-exe \
         docker-up docker-down clean lint
 
 help:
@@ -15,6 +15,8 @@ help:
 	@echo "  make dev-frontend    Start Vite dev server (port 5173, proxies /api → Go)"
 	@echo ""
 	@echo "  make build-frontend  Build React → backend-go/static/ (production)"
+	@echo ""
+	@echo "  make build-exe       Build the standalone Windows dashboard executable"
 	@echo ""
 	@echo "  make docker-up       docker compose up --build -d"
 	@echo "  make docker-down     docker compose down"
@@ -51,6 +53,12 @@ build-frontend:
 	@echo "[frontend] Build complete. Go will serve static/ at /*"
 
 # ── Docker ────────────────────────────────────────────────────────────────────
+
+build-exe:
+	@echo "[exe] Building React and standalone Windows dashboard ..."
+	cd frontend && npm run build
+	cd exe && go build -o ../lsb-dashboard.exe .
+	@echo "[exe] Build complete: lsb-dashboard.exe"
 
 docker-up:
 	cp -n .env.example .env 2>/dev/null || true
