@@ -26,6 +26,8 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    env_file:
+      - ./config/.env
     environment:
       # MARS SQL Server
       MARS_DB_HOST:     ${MARS_DB_HOST:-192.168.1.100}
@@ -59,6 +61,8 @@ services:
     restart: unless-stopped
     ports:
       - "3001:3001"
+    env_file:
+      - ./config/.env
     depends_on:
       backend-java:
         condition: service_healthy
@@ -82,6 +86,10 @@ services:
       ISSUES_TABLE:   ${ISSUES_TABLE:-open_issues}
       # Java sidecar
       JAVA_SERVICE_URL: http://backend-java:8080
+      LSB_JAVA_URL: http://backend-java:8080
+    volumes:
+      - ./config:/app/config
+      - ./scripts:/app/scripts:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:3001/health || exit 1"]
       interval: 30s

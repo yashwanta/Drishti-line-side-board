@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: docker.io/library/postgres:17
+    container_name: lsb-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:55432:5432"
+    environment:
+      POSTGRES_DB: ${LOCAL_DB_NAME:-mesdb}
+      POSTGRES_USER: ${LOCAL_DB_USER:-mesapp}
+      POSTGRES_PASSWORD: ${LOCAL_DB_PASS:-lsb-local-change-me}
+    volumes:
+      - lsb-postgres-data:/var/lib/postgresql/data
+      - ./seed/seed.sql:/docker-entrypoint-initdb.d/10-seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LOCAL_DB_USER:-mesapp} -d ${LOCAL_DB_NAME:-mesdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - lsb-net
+
+  pgadmin:
+    image: docker.io/dpage/pgadmin4:latest
+    container_name: lsb-pgadmin
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@linesideboard.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-lsb-admin-change-me}
+    volumes:
+      - lsb-pgadmin-data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - lsb-net
+
+  backend-go:
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${LOCAL_DB_NAME:-mesdb}
+      DB_USER: ${LOCAL_DB_USER:-mesapp}
+      DB_PASS: ${LOCAL_DB_PASS:-lsb-local-change-me}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend-java:
+        condition: service_healthy
+
+volumes:
+  lsb-postgres-data:
+  lsb-pgadmin-data:

@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { api } from '../api/client'
+import { Bar } from './OEEAnalyticsTab'
 
 const REASON_CODES = [
   'Equipment Failure',
@@ -60,11 +61,76 @@ const S = {
   empty: { padding: 32, textAlign: 'center', color: '#8b949e' },
 }
 
-export default function DowntimeTab({ data = {}, resource, onRefresh }) {
+const BACK_STYLE = {
+  background: 'transparent', border: '1px solid #21262d', color: '#8b949e',
+  borderRadius: 8, padding: '7px 16px', cursor: 'pointer', marginBottom: 16,
+}
+const CATEGORY_COLORS = { Tooling: '#a78bfa', Maintenance: '#ff4444', Production: '#ffaa00', Material: '#00d4ff', Quality: '#fb923c' }
+
+function downtimeCategory(reason = '') {
+  const value = reason.toLowerCase()
+  if (/tool|mandrel|electrode|gun/.test(value)) return 'Tooling'
+  if (/material|forklift|shortage/.test(value)) return 'Material'
+  if (/quality|scrap|hold/.test(value)) return 'Quality'
+  if (/equipment|robot|press|network|failure|fault|maintenance/.test(value)) return 'Maintenance'
+  return 'Production'
+}
+
+function CategoryDetail({ category, events, totalMins, resource, date, onBack }) {
+  const selectedEvents = events.filter(event => downtimeCategory(event.reason_code) === category)
+  const reasons = Object.values(selectedEvents.reduce((result, event) => {
+    const reason = event.reason_code || 'Unspecified'
+    if (!result[reason]) result[reason] = { reason, minutes: 0, count: 0 }
+    result[reason].minutes += Number(event.minutes) || 0
+    result[reason].count += 1
+    return result
+  }, {})).sort((a, b) => b.minutes - a.minutes).slice(0, 5)
+  const categoryMins = selectedEvents.reduce((sum, event) => sum + (Number(event.minutes) || 0), 0)
+  const maxMinutes = Math.max(...reasons.map(reason => reason.minutes), 1)
+  const key = `lsb_dt_action_${resource}*${category}*${date}`
+  const [action, setAction] = useState(() => {
+    try { return localStorage.getItem(key) || '' } catch { return '' }
+  })
+  const color = CATEGORY_COLORS[category] || '#8b949e'
+
+  function saveAction(value) {
+    setAction(value)
+    try { localStorage.setItem(key, value) } catch { /* storage unavailable */ }
+  }
+
+  return (
+    <div style={{ padding: 24 }}>
+      <button onClick={onBack} style={BACK_STYLE}>← Back</button>
+      <div style={{ fontSize: 24, color, fontWeight: 800, marginBottom: 18 }}>{category.toUpperCase()} DOWNTIME</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(140px, 220px))', gap: 12, marginBottom: 22 }}>
+        <div style={S.summaryCard(color)}><div style={S.summaryLabel}>TOTAL MINUTES</div><div style={S.summaryVal(color)}>{categoryMins}</div></div>
+        <div style={S.summaryCard('#8b949e')}><div style={S.summaryLabel}>EVENT COUNT</div><div style={S.summaryVal('#8b949e')}>{selectedEvents.length}</div></div>
+      </div>
+      <div style={{ background: `${color}10`, border: `1px solid ${color}33`, borderRadius: 8, padding: 12, color: '#c9d1d9', fontSize: 13, marginBottom: 22 }}>
+        This category accounts for <strong style={{ color }}>{totalMins ? (categoryMins / totalMins * 100).toFixed(1) : '0.0'}%</strong> of total downtime this shift.
+      </div>
+      <div style={{ fontSize: 11, color: '#8b949e', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 14 }}>Top downtime reasons</div>
+      <div style={{ background: '#161b22', border: '1px solid #21262d', borderRadius: 10, padding: 18, marginBottom: 24 }}>
+        {reasons.length ? reasons.map(reason => (
+          <div key={reason.reason} style={{ display: 'grid', gridTemplateColumns: '170px 1fr 85px', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+            <div><div style={{ color: '#e6edf3', fontSize: 12 }}>{reason.reason}</div><div style={{ color: '#6e7681', fontSize: 10 }}>{reason.count} event{reason.count === 1 ? '' : 's'}</div></div>
+            <Bar pct={reason.minutes / maxMinutes * 100} color={color} height={9} />
+            <div style={{ color, fontFamily: 'monospace', textAlign: 'right' }}>{reason.minutes} min</div>
+          </div>
+        )) : <div style={S.empty}>No reasons recorded in this category</div>}
+      </div>
+      <div style={{ fontSize: 11, color: '#8b949e', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Log Action Taken</div>
+      <textarea value={action} onChange={e => saveAction(e.target.value)} rows={5} placeholder="Record containment, repair, or follow-up action..." style={{ width: '100%', boxSizing: 'border-box', background: '#0d1117', border: '1px solid #21262d', borderRadius: 8, color: '#e6edf3', padding: 12, resize: 'vertical', lineHeight: 1.5 }} />
+    </div>
+  )
+}
+
+export default function DowntimeTab({ data = {}, resource, selectedDate, onRefresh }) {
   const events = data.events || []
   const totalMins = data.total_mins || 0
   const [form, setForm] = useState({ reason_code: REASON_CODES[0], minutes: '', comment: '' })
   const [saving, setSaving] = useState(false)
+  const [drillTarget, setDrillTarget] = useState(null)
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -82,6 +148,19 @@ export default function DowntimeTab({ data = {}, resource, onRefresh }) {
 
   const totalHrs = (totalMins / 60).toFixed(1)
   const uptimePct = totalMins > 0 ? Math.max(0, ((480 - totalMins) / 480 * 100)).toFixed(1) : 100
+  const dateValue = selectedDate || new Date()
+  const date = data.date || `${dateValue.getFullYear()}-${String(dateValue.getMonth() + 1).padStart(2, '0')}-${String(dateValue.getDate()).padStart(2, '0')}`
+  const categories = Object.values(events.reduce((result, event) => {
+    const category = downtimeCategory(event.reason_code)
+    if (!result[category]) result[category] = { name: category, minutes: 0, count: 0 }
+    result[category].minutes += Number(event.minutes) || 0
+    result[category].count += 1
+    return result
+  }, {})).sort((a, b) => b.minutes - a.minutes)
+
+  if (drillTarget) {
+    return <CategoryDetail category={drillTarget} events={events} totalMins={totalMins} resource={resource} date={date} onBack={() => setDrillTarget(null)} />
+  }
 
   return (
     <div style={S.wrap}>
@@ -129,6 +208,20 @@ export default function DowntimeTab({ data = {}, resource, onRefresh }) {
             <div style={S.summaryVal('#8b949e')}>{events.length}</div>
           </div>
         </div>
+
+        {categories.length > 0 && <>
+          <div style={S.listTitle}>DOWNTIME BY CATEGORY</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 20 }}>
+            {categories.map(category => {
+              const color = CATEGORY_COLORS[category.name] || '#8b949e'
+              return <button key={category.name} onClick={() => setDrillTarget(category.name)} style={{ background: '#161b22', border: `1px solid ${color}44`, borderLeft: `3px solid ${color}`, borderRadius: 8, padding: '11px 13px', textAlign: 'left', cursor: 'pointer' }}>
+                <div style={{ color, fontSize: 11, fontWeight: 700, letterSpacing: 1 }}>{category.name.toUpperCase()}</div>
+                <div style={{ color: '#e6edf3', fontFamily: 'monospace', fontSize: 18, fontWeight: 800, marginTop: 4 }}>{category.minutes} min</div>
+                <div style={{ color: '#6e7681', fontSize: 10 }}>{category.count} event{category.count === 1 ? '' : 's'} · View details →</div>
+              </button>
+            })}
+          </div>
+        </>}
 
         <div style={S.listTitle}>TODAY'S DOWNTIME LOG</div>
         {events.length === 0 ? (

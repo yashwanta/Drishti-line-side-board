@@ -1,17 +1,14 @@
-<<<<<<< HEAD
 # Environment / secrets
 .env
 *.env.local
-=======
-# Environment / secrets
-.env
-*.env.local
+config/.env
 
 # Go
 lsb-api
 backend-go/lsb-api
 backend-go/static/
 bin/
+.gocache/
 
 # Java / Maven
 backend-java/target/
@@ -35,4 +32,3 @@ frontend/dist/
 # OS
 .DS_Store
 Thumbs.db
->>>>>>> afadfd2 (fix: remove WM15 from header title)

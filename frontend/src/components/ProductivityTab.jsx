@@ -3,6 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts'
+import { formatHour12 } from '../utils/time'
 
 const S = {
   wrap: { padding: 24 },
@@ -73,7 +74,7 @@ export default function ProductivityTab({ rows = [] }) {
             <CartesianGrid strokeDasharray="3 3" stroke="#21262d" />
             <XAxis
               dataKey="hour"
-              tickFormatter={h => `${String(h).padStart(2,'0')}:00`}
+              tickFormatter={formatHour12}
               tick={{ fill: '#8b949e', fontSize: 11 }}
               axisLine={{ stroke: '#30363d' }}
               tickLine={false}
@@ -119,11 +120,11 @@ export default function ProductivityTab({ rows = [] }) {
         </div>
         <div style={S.statCard}>
           <div style={S.statLabel}>BEST HOUR</div>
-          <div style={S.statVal('#00ff88')}>{bestHour ? `${String(bestHour.hour).padStart(2,'0')}:00` : '—'}</div>
+          <div style={S.statVal('#00ff88')}>{bestHour ? formatHour12(bestHour.hour) : '—'}</div>
         </div>
         <div style={S.statCard}>
           <div style={S.statLabel}>WORST HOUR</div>
-          <div style={S.statVal('#ff4444')}>{worstHour ? `${String(worstHour.hour).padStart(2,'0')}:00` : '—'}</div>
+          <div style={S.statVal('#ff4444')}>{worstHour ? formatHour12(worstHour.hour) : '—'}</div>
         </div>
         <div style={S.statCard}>
           <div style={S.statLabel}>HOURS LOGGED</div>
