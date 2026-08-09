@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import nocLogo from '../../../image/NOC-LOGO4.png'
+import nocLogo from '../../../image/NOC-LOGO4-transparent.png'
 import { api } from '../api/client'
 
 const S = {
@@ -17,22 +17,19 @@ const S = {
   },
   brand: { display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 },
   logoFrame: {
-    width: 112,
+    width: 64,
     height: 62,
     flexShrink: 0,
     overflow: 'hidden',
-    borderRadius: 9,
-    background: 'linear-gradient(135deg, #101419, #0d1117)',
-    border: '1px solid rgba(111, 210, 238, 0.22)',
-    boxShadow: '0 0 18px rgba(0, 212, 255, 0.10), inset 0 0 12px rgba(0, 0, 0, 0.45)',
+    background: 'transparent',
   },
   logo: {
     display: 'block',
     width: '100%',
     height: '100%',
-    objectFit: 'cover',
+    objectFit: 'contain',
     objectPosition: 'center',
-    filter: 'brightness(1.12) contrast(1.08) saturate(1.06)',
+    transform: 'scale(1.55)',
   },
   left: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 },
   title: {

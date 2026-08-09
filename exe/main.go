@@ -5,18 +5,24 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
 	"log"
+	"log/slog"
 	"math"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"lsb-api/internal/deployment"
@@ -29,21 +35,39 @@ var staticAssets embed.FS
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func cors(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+func cors(next http.Handler) http.Handler {
+	subnet := os.Getenv("CORS_SUBNET")
+	_, plantNet, _ := net.ParseCIDR(subnet)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" && plantNet != nil {
+			host := origin
+			if idx := strings.LastIndex(origin, ":"); idx > strings.Index(origin, "//") {
+				host = origin[:idx]
+			}
+			host = strings.TrimPrefix(host, "http://")
+			host = strings.TrimPrefix(host, "https://")
+			ip := net.ParseIP(host)
+			if ip != nil && plantNet.Contains(ip) {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+			}
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
+
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization")
+
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		next(w, r)
-	}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func qp(r *http.Request, key, def string) string {
@@ -167,7 +191,6 @@ func randomDelta(rng *rand.Rand, amplitude float64) float64 {
 func spaHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -182,7 +205,6 @@ func spaHandler() http.HandlerFunc {
 			defer f.Close()
 			// Serve the file directly
 			content, _ := io.ReadAll(f)
-			w.Header().Set("Access-Control-Allow-Origin", "*")
 			if strings.HasSuffix(path, ".html") {
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			} else if strings.HasSuffix(path, ".js") {
@@ -202,7 +224,6 @@ func spaHandler() http.HandlerFunc {
 		}
 		defer index.Close()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.WriteHeader(http.StatusOK)
 		io.Copy(w, index)
 	}
@@ -1017,54 +1038,54 @@ func handleWeekly(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"resource": resource, "days": weeklyData(resource, anchorDate)})
 }
 
-func modeRoute(mock http.HandlerFunc, javaPath string) http.HandlerFunc {
+func modeRoute(mock http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch deployment.Mode() {
-		case "production":
-			proxyToJava(w, r, javaPath)
 		case "mock":
 			mock(w, r)
+		case "production":
+			w.WriteHeader(http.StatusServiceUnavailable)
+			writeJSON(w, map[string]string{"error": "direct database route unavailable in standalone mock build"})
 		default:
 			writeJSON(w, map[string]string{"status": "unconfigured"})
 		}
 	}
 }
 
-func proxyToJava(w http.ResponseWriter, r *http.Request, javaPath string) {
-	base := strings.TrimRight(os.Getenv("LSB_JAVA_URL"), "/")
-	if base == "" {
-		base = "http://localhost:8080"
-	}
-	target := base + javaPath
-	if r.URL.RawQuery != "" {
-		target += "?" + r.URL.RawQuery
-	}
-	request, err := http.NewRequestWithContext(r.Context(), r.Method, target, r.Body)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	if contentType := r.Header.Get("Content-Type"); contentType != "" {
-		request.Header.Set("Content-Type", contentType)
-	}
-	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(request)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		writeJSON(w, map[string]string{"error": "Java SQL Server service unavailable"})
-		return
-	}
-	defer response.Body.Close()
-	if contentType := response.Header.Get("Content-Type"); contentType != "" {
-		w.Header().Set("Content-Type", contentType)
-	}
-	w.WriteHeader(response.StatusCode)
-	_, _ = io.Copy(w, response.Body)
-}
-
 // ── main ───────────────────────────────────────────────────────────────────────
 
+func startHTTPServer(server *http.Server) <-chan error {
+	serverErrors := make(chan error, 1)
+	go func() {
+		err := server.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+		serverErrors <- err
+	}()
+	return serverErrors
+}
+
+func shutdownHTTPServer(server *http.Server, timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		slog.Error("HTTP server graceful shutdown failed", "error", err)
+	}
+}
+
 func main() {
+	runningAsService, serviceCheckErr := IsWindowsService()
+	if serviceCheckErr != nil {
+		slog.Warn("Windows service detection failed; starting normally", "error", serviceCheckErr)
+		runningAsService = false
+	}
+	if runningAsService {
+		slog.Info("starting as Windows service", "name", "LSB-Go")
+	} else {
+		slog.Info("starting in terminal mode")
+	}
+
 	configPath, err := deployment.EnsureAndLoadEnv()
 	if err != nil {
 		log.Printf("[config] %v", err)
@@ -1080,30 +1101,30 @@ func main() {
 
 	mux.HandleFunc("/", spaHandler())
 
-	mux.HandleFunc("/health", cors(handleHealth))
-	mux.HandleFunc("/api/health", cors(handleHealth))
-	mux.HandleFunc("/api/setup/demo", cors(deployment.HandleDemo))
-	mux.HandleFunc("/api/setup/test-connection", cors(deployment.HandleTestConnection))
-	mux.HandleFunc("/api/setup/import-excel", cors(deployment.HandleImportExcel))
-	mux.HandleFunc("/api/oee/entries", cors(deployment.HandleOEEEntries))
-	mux.HandleFunc("/api/notes", cors(handleNotes))
-	mux.HandleFunc("/api/stations", cors(modeRoute(handleStations, "/api/stations")))
-	mux.HandleFunc("/api/kpis", cors(modeRoute(handleKPIs, "/mars/kpis")))
-	mux.HandleFunc("/api/production", cors(modeRoute(handleProduction, "/mars/production")))
-	mux.HandleFunc("/api/productivity", cors(modeRoute(handleProductivity, "/api/productivity")))
-	mux.HandleFunc("/api/issues", cors(modeRoute(handleIssues, "/api/issues")))
-	mux.HandleFunc("/api/downtime", cors(modeRoute(handleDowntime, "/api/downtime")))
-	mux.HandleFunc("/api/confirm", cors(modeRoute(handleConfirm, "/api/confirm")))
-	mux.HandleFunc("/api/robotpress", cors(modeRoute(handleRobotPress, "/robotpress")))
-	mux.HandleFunc("/api/robot-press", cors(modeRoute(handleRobotPress, "/robotpress")))
-	mux.HandleFunc("/api/robotpress/history", cors(modeRoute(handleRobotPress, "/robotpress/history")))
-	mux.HandleFunc("/api/mars/kpis", cors(modeRoute(handleMarsKpis, "/mars/kpis")))
-	mux.HandleFunc("/api/mars/production", cors(modeRoute(handleMarsProduction, "/mars/production")))
-	mux.HandleFunc("/api/mars/quality", cors(modeRoute(handleMarsQuality, "/mars/quality")))
-	mux.HandleFunc("/api/mars/schedule", cors(modeRoute(handleMarsSchedule, "/mars/schedule")))
-	mux.HandleFunc("/api/production/status", cors(modeRoute(handleProductionStatus, "/api/production/status")))
-	mux.HandleFunc("/api/shipping/status", cors(modeRoute(handleShippingStatus, "/api/shipping/status")))
-	mux.HandleFunc("/api/weekly", cors(modeRoute(handleWeekly, "/api/weekly")))
+	mux.HandleFunc("/health", handleHealth)
+	mux.HandleFunc("/api/health", handleHealth)
+	mux.HandleFunc("/api/setup/demo", deployment.HandleDemo)
+	mux.HandleFunc("/api/setup/test-connection", deployment.HandleTestConnection)
+	mux.HandleFunc("/api/setup/import-excel", deployment.HandleImportExcel)
+	mux.HandleFunc("/api/oee/entries", deployment.HandleOEEEntries)
+	mux.HandleFunc("/api/notes", handleNotes)
+	mux.HandleFunc("/api/stations", modeRoute(handleStations))
+	mux.HandleFunc("/api/kpis", modeRoute(handleKPIs))
+	mux.HandleFunc("/api/production", modeRoute(handleProduction))
+	mux.HandleFunc("/api/productivity", modeRoute(handleProductivity))
+	mux.HandleFunc("/api/issues", modeRoute(handleIssues))
+	mux.HandleFunc("/api/downtime", modeRoute(handleDowntime))
+	mux.HandleFunc("/api/confirm", modeRoute(handleConfirm))
+	mux.HandleFunc("/api/robotpress", modeRoute(handleRobotPress))
+	mux.HandleFunc("/api/robot-press", modeRoute(handleRobotPress))
+	mux.HandleFunc("/api/robotpress/history", modeRoute(handleRobotPress))
+	mux.HandleFunc("/api/mars/kpis", modeRoute(handleMarsKpis))
+	mux.HandleFunc("/api/mars/production", modeRoute(handleMarsProduction))
+	mux.HandleFunc("/api/mars/quality", modeRoute(handleMarsQuality))
+	mux.HandleFunc("/api/mars/schedule", modeRoute(handleMarsSchedule))
+	mux.HandleFunc("/api/production/status", modeRoute(handleProductionStatus))
+	mux.HandleFunc("/api/shipping/status", modeRoute(handleShippingStatus))
+	mux.HandleFunc("/api/weekly", modeRoute(handleWeekly))
 
 	fmt.Printf("\n  LINE SIDE BOARD — Dashboard Executable\n")
 	fmt.Printf("  → http://localhost%s\n\n", addr)
@@ -1112,7 +1133,34 @@ func main() {
 	fmt.Printf("        Robot Press · MARS Data · Shipping · Production Status\n\n")
 	fmt.Printf("  Mode: %s\n\n", deployment.Mode())
 
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		panic(err)
+	server := &http.Server{Addr: addr, Handler: cors(mux)}
+	if runningAsService {
+		serverErrors := startHTTPServer(server)
+		if err := RunAsService("LSB-Go"); err != nil {
+			slog.Error("Windows service stopped with an error", "name", "LSB-Go", "error", err)
+		}
+		shutdownHTTPServer(server, 10*time.Second)
+		if err := <-serverErrors; err != nil {
+			slog.Error("HTTP server stopped with an error", "error", err)
+		}
+		return
+	}
+
+	serverErrors := startHTTPServer(server)
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+
+	select {
+	case received := <-signals:
+		slog.Info("shutdown signal received", "signal", received.String())
+		shutdownHTTPServer(server, 5*time.Second)
+		if err := <-serverErrors; err != nil {
+			slog.Error("HTTP server stopped with an error", "error", err)
+		}
+	case err := <-serverErrors:
+		if err != nil {
+			slog.Error("HTTP server stopped with an error", "error", err)
+		}
 	}
 }

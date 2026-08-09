@@ -1,0 +1,13 @@
+./digest.go
+./downtime.go
+./health.go
+./helpers.go
+./issues.go
+./kpis.go
+./loganalyze.go
+./mars.go
+./oee_anomaly.go
+./production.go
+./productivity.go
+./remediate.go
+./robotpress.go
