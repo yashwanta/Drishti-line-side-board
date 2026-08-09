@@ -17,6 +17,7 @@ import OneByOneTab from './components/OneByOneTab'
 import LegendPanel from './components/LegendPanel'
 import WeeklyPanel from './components/WeeklyPanel'
 import OEEAnalyticsTab from './components/OEEAnalyticsTab'
+import AIHealthTab from './components/AIHealthTab'
 import ExecutiveSummary from './components/ExecutiveSummary'
 import SetupScreen from './components/SetupScreen'
 import TVDashboard from './components/TVDashboard'
@@ -47,6 +48,7 @@ const TABS = [
   { id: 'onebyone',   label: '📋 1×1 Sheet' },
   { id: 'legend',     label: '🗺 Legend' },
   { id: 'weekly',     label: '📅 Weekly' },
+  { id: 'aihealth',   label: '🤖 AI Health' },
   { id: 'tv',         label: '📺 TV Mode' },
 ]
 
@@ -396,6 +398,7 @@ export default function App() {
         {activeTab === 'onebyone'    && <OneByOneTab />}
         {activeTab === 'legend'      && <LegendPanel />}
         {activeTab === 'weekly'      && <WeeklyPanel data={weekly} resource={resource} selectedDate={selectedDate} />}
+        {activeTab === 'aihealth'    && <AIHealthTab />}
         {activeTab === 'tv'          && (
           <TVDashboard
             kpis={kpis}
@@ -422,7 +425,7 @@ export default function App() {
 
       {/* Footer */}
       <div style={S.footer}>
-        <div>LINE SIDE BOARD v2.0  ·  {resource}  ·  SHIFT {SHIFT}  ·  Go + React + Java</div>
+        <div>LINE SIDE BOARD v2.0  ·  {resource}  ·  SHIFT {SHIFT}  ·  Go + React</div>
         <div style={S.footerRight}>
           {isLive
             ? <span><span style={S.refreshDot(refreshing)} />Auto-refresh {REFRESH_MS / 1000}s</span>

@@ -30,6 +30,12 @@ async function post(path, body) {
   return res.json()
 }
 
+async function getText(path) {
+  const res = await fetch(BASE + path)
+  if (!res.ok) throw new Error(`API ${path} → ${res.status}`)
+  return res.text()
+}
+
 // ── PostgreSQL-backed endpoints ───────────────────────────────────────────────
 export const api = {
   health:       () => get('/health'),
@@ -102,4 +108,44 @@ export const api = {
   robotPress:     (date = new Date()) => get(`/robotpress?date=${dateStr(date)}`),
 
   robotPressHistory: (limit = 50) => get(`/robotpress/history?limit=${limit}`),
+
+  llmLogAnalysis: async () => {
+    try {
+      return await get('/llm/log-analysis')
+    } catch {
+      return { overall_health: 'unknown', one_liner: 'Unable to reach service', issues: [] }
+    }
+  },
+
+  llmAnomalies: async (hours = 24) => {
+    try {
+      return await get(`/llm/anomalies?hours=${hours}`)
+    } catch {
+      return []
+    }
+  },
+
+  llmDigest: async (date = '') => {
+    try {
+      return await getText(date ? `/llm/digest?date=${encodeURIComponent(date)}` : '/llm/digest')
+    } catch {
+      return ''
+    }
+  },
+
+  llmDigestList: async () => {
+    try {
+      return await get('/llm/digest/list')
+    } catch {
+      return []
+    }
+  },
+
+  llmRemediate: async (issue) => {
+    try {
+      return await post('/llm/remediate', { issue: issue })
+    } catch {
+      return { summary: 'Request failed', safe_actions: [], do_not_do: [], escalate_if: '' }
+    }
+  },
 }

@@ -11,6 +11,14 @@ backend-go/static/
 bin/
 .gocache/
 
+# Compiled binaries
+backend-go/lsb-api.exe
+backend-go/lsb-api.exe~
+*.exe~
+
+# Embedded frontend build (compiled output — not source)
+exe/build/
+
 # Java / Maven
 backend-java/target/
 *.jar
