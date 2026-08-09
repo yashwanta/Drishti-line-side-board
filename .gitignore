@@ -2,6 +2,7 @@
 .env
 *.env.local
 config/.env
+API.txt
 
 # Go
 lsb-api

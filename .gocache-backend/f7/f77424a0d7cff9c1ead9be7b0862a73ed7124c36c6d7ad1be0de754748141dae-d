@@ -1,0 +1,4 @@
+./main.go
+./setup.go
+./main_test.go
+./setup_test.go

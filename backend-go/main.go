@@ -1,16 +1,20 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
-	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"lsb-api/db"
+	"lsb-api/handlers"
+	"lsb-api/llm"
+	"lsb-api/middleware"
 )
 
 const version = "2.0"
@@ -83,74 +87,7 @@ func jsonResponse(w http.ResponseWriter, status int, value any) {
 }
 
 func healthHandler(w http.ResponseWriter, _ *http.Request) {
-	mode := appMode()
-	if mode == "production" {
-		jsonResponse(w, http.StatusOK, map[string]any{"status": "ok", "mode": mode, "db": os.Getenv("LSB_DB_NAME"), "version": version})
-		return
-	}
-	if mode == "mock" {
-		jsonResponse(w, http.StatusOK, map[string]any{"status": "ok", "mode": mode, "version": version})
-		return
-	}
-	jsonResponse(w, http.StatusOK, map[string]any{"status": "unconfigured", "mode": "unconfigured", "version": version})
-}
-
-func cors(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next(w, r)
-	}
-}
-
-func javaPath(apiPath string) string {
-	switch apiPath {
-	case "/api/kpis", "/api/mars/kpis":
-		return "/mars/kpis"
-	case "/api/production", "/api/mars/production":
-		return "/mars/production"
-	case "/api/mars/quality":
-		return "/mars/quality"
-	case "/api/mars/schedule":
-		return "/mars/schedule"
-	case "/api/robotpress", "/api/robot-press":
-		return "/robotpress"
-	case "/api/robotpress/history":
-		return "/robotpress/history"
-	default:
-		return apiPath
-	}
-}
-
-func proxyToJava(w http.ResponseWriter, r *http.Request) {
-	base := strings.TrimRight(os.Getenv("LSB_JAVA_URL"), "/")
-	if base == "" {
-		base = "http://localhost:8080"
-	}
-	target := base + javaPath(r.URL.Path)
-	if r.URL.RawQuery != "" {
-		target += "?" + r.URL.RawQuery
-	}
-	request, err := http.NewRequestWithContext(r.Context(), r.Method, target, r.Body)
-	if err != nil {
-		jsonResponse(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
-		return
-	}
-	request.Header.Set("Content-Type", r.Header.Get("Content-Type"))
-	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(request)
-	if err != nil {
-		jsonResponse(w, http.StatusServiceUnavailable, map[string]string{"error": "Java SQL Server service unavailable"})
-		return
-	}
-	defer response.Body.Close()
-	w.Header().Set("Content-Type", response.Header.Get("Content-Type"))
-	w.WriteHeader(response.StatusCode)
-	_, _ = io.Copy(w, response.Body)
+	handlers.HandleHealth(w, nil)
 }
 
 func inlineMock(w http.ResponseWriter, r *http.Request) {
@@ -180,38 +117,129 @@ func inlineMock(w http.ResponseWriter, r *http.Request) {
 
 func modeAPIHandler(w http.ResponseWriter, r *http.Request) {
 	switch appMode() {
-	case "production":
-		proxyToJava(w, r)
 	case "mock":
 		inlineMock(w, r)
+	case "production":
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "API route not found"})
 	default:
 		jsonResponse(w, http.StatusOK, map[string]string{"status": "unconfigured"})
 	}
 }
 
+type statusResponseWriter struct {
+	http.ResponseWriter
+	statusCode  int
+	wroteHeader bool
+}
+
+func (w *statusResponseWriter) WriteHeader(statusCode int) {
+	if w.wroteHeader {
+		return
+	}
+	w.statusCode = statusCode
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *statusResponseWriter) Write(body []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(body)
+}
+
+func requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		response := &statusResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		next.ServeHTTP(response, r)
+		slog.Info("http request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status_code", response.statusCode,
+			"duration_ms", time.Since(started).Milliseconds(),
+			"remote_addr", r.RemoteAddr,
+		)
+	})
+}
+
 func main() {
 	path, err := loadConfigEnv()
-	if err != nil {
-		log.Printf("[config] %v", err)
+	if logPath := strings.TrimSpace(os.Getenv("LOG_FILE")); logPath != "" {
+		logFile, logErr := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if logErr != nil {
+			slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+			slog.Error("log file unavailable", "path", logPath, "error", logErr)
+		} else {
+			defer logFile.Close()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(logFile, nil)))
+		}
 	} else {
-		log.Printf("[config] loaded %s", path)
+		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	}
+	if os.Getenv("DB_HOST") != "" {
+		db.Connect()
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		if err := handlers.EnsureOEEAnomalySchema(ctx); err != nil {
+			slog.Error("OEE anomaly schema setup failed", "error", err)
+		}
+		cancel()
+	}
+	if os.Getenv("LSB_DB_SERVER") != "" {
+		if err := db.ConnectMSSQL(); err != nil {
+			slog.Warn("MSSQL connection failed at startup", "error", err)
+		}
+	}
+	if err := llm.LoadConfig(); err != nil {
+		slog.Warn("LLM configuration unavailable", "error", err)
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := handlers.CheckLLM(ctx); err != nil {
+			slog.Warn("LLM server unreachable at startup", "error", err)
+		}
+		cancel()
+	}
+	if err != nil {
+		slog.Error("configuration load failed", "error", err)
+	} else {
+		slog.Info("configuration loaded", "path", path)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", cors(healthHandler))
-	mux.HandleFunc("/api/health", cors(healthHandler))
-	mux.HandleFunc("/api/setup/demo", cors(handleSetupDemo))
-	mux.HandleFunc("/api/setup/test-connection", cors(handleSetupTestConnection))
-	mux.HandleFunc("/api/setup/import-excel", cors(handleSetupImportExcel))
-	mux.HandleFunc("/api/oee/entries", cors(handleOEEEntries))
-	mux.HandleFunc("/api/", cors(modeAPIHandler))
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/api/health", healthHandler)
+	mux.HandleFunc("/api/setup/demo", handleSetupDemo)
+	mux.HandleFunc("/api/setup/configure-mssql", handleSetupConfigureMSSQL)
+	mux.HandleFunc("/api/setup/configure-postgres", handleSetupConfigurePostgres)
+	mux.HandleFunc("/api/setup/import-excel", handleSetupImportExcel)
+	mux.HandleFunc("/api/oee/entries", handleOEEEntries)
+	mux.HandleFunc("/api/kpis", handlers.HandleKPIs)
+	mux.HandleFunc("/api/production", handlers.HandleProduction)
+	mux.HandleFunc("/api/confirm", handlers.HandleConfirm)
+	mux.HandleFunc("/api/productivity", handlers.HandleProductivity)
+	mux.HandleFunc("/api/issues", handlers.HandleIssues)
+	mux.HandleFunc("/api/issues/raise", handlers.HandleRaiseIssue)
+	mux.HandleFunc("/api/stations", handlers.GetStations)
+	mux.HandleFunc("/api/production/status", handlers.GetProductionStatus)
+	mux.HandleFunc("/api/shipping/status", handlers.GetShippingStatus)
+	mux.HandleFunc("/api/weekly", handlers.GetWeekly)
+	mux.HandleFunc("/api/downtime", handlers.GetDowntime)
+	mux.HandleFunc("/api/llm/log-analysis", handlers.HandleLogAnalysis)
+	mux.HandleFunc("/api/llm/anomalies", handlers.HandleOEEAnomalies)
+	mux.HandleFunc("/api/llm/remediate", handlers.HandleRemediate)
+	mux.HandleFunc("/api/llm/digest/list", handlers.HandleDigestList)
+	mux.HandleFunc("/api/llm/digest", handlers.HandleDigest)
+	mux.HandleFunc("/api/", modeAPIHandler)
 	mux.Handle("/", http.FileServer(http.Dir("./static")))
 
 	port := os.Getenv("PORT")
 	if _, err := strconv.Atoi(port); err != nil {
 		port = "3001"
 	}
-	log.Printf("[main] Line Side Board API v%s listening on :%s (mode=%s)", version, port, appMode())
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
-		log.Fatal(fmt.Errorf("server: %w", err))
+	slog.Info("Line Side Board API listening", "version", version, "port", port, "mode", appMode())
+	handlers.StartLogAnalyzer(context.Background())
+	handlers.StartOEEAnomalyDetector(context.Background())
+	handlers.StartDailyDigest(context.Background())
+	if err := http.ListenAndServe(":"+port, requestLogger(middleware.CORS(mux))); err != nil {
+		slog.Error("server stopped", "error", err)
 	}
 }

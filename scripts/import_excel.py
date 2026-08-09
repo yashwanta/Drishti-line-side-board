@@ -27,11 +27,11 @@ ALIASES = {
     "shift": {"shift", "shiftnum", "shiftnumber"},
     "cell": {"cell", "station", "stationname", "resource", "resourceid", "workcenter"},
     "part_number": {"part", "partnumber", "partno", "pn"},
-    "tool_dt": {"tooldt", "toolingdt", "toolingdowntime", "tooldowntimemin"},
+    "tool_dt": {"tooldt", "tooldtmin", "toolingdt", "toolingdowntime", "tooldowntimemin"},
     "top_tool_issue": {"toptoolissue", "toolingissue", "toolissue"},
-    "maint_dt": {"maintdt", "maintenancedt", "maintenancedowntime", "maintdowntimemin"},
+    "maint_dt": {"maintdt", "maintdtmin", "maintenancedt", "maintenancedowntime", "maintdowntimemin"},
     "top_maint_issue": {"topmaintissue", "maintenanceissue", "maintissue"},
-    "prod_dt": {"proddt", "productiondt", "productiondowntime", "proddowntimemin"},
+    "prod_dt": {"proddt", "proddtmin", "productiondt", "productiondowntime", "proddowntimemin"},
     "top_prod_issue": {"topprodissue", "productionissue", "prodissue"},
     "parts": {"parts", "partsreported", "reportedparts", "actual", "actualqty", "totalparts"},
     "plan": {"plan", "planned", "plannedqty", "targetparts"},
@@ -47,6 +47,12 @@ ALIASES = {
 }
 
 ALIAS_LOOKUP = {alias: canonical for canonical, aliases in ALIASES.items() for alias in aliases}
+
+REQUIRED_COLUMNS = (
+    "date", "shift", "cell", "part_number", "tool_dt_min", "maint_dt_min",
+    "prod_dt_min", "parts_reported", "target_cycle_sec", "actual_cycle_sec",
+    "scrap", "rework", "availability_pct", "performance_pct", "quality_pct", "oee_pct",
+)
 
 
 def normalise(value: object) -> str:
@@ -196,9 +202,32 @@ def main() -> int:
     errors: list[str] = []
     stations: set[str] = set()
     imported = 0
+    skipped = 0
     connection = None
     try:
         workbook = openpyxl.load_workbook(workbook_path, read_only=True, data_only=True)
+        first_sheet = workbook.worksheets[0]
+        first_header_row, _ = find_header(first_sheet)
+        header_names: set[str] = set()
+        if first_header_row is not None:
+            header_values = next(first_sheet.iter_rows(
+                min_row=first_header_row, max_row=first_header_row, values_only=True
+            ))
+            header_names = {str(value or "").strip().lower() for value in header_values}
+        missing = [column for column in REQUIRED_COLUMNS if column not in header_names]
+        if missing:
+            emit({"error": "missing columns", "missing": missing})
+            return 1
+
+        data_row_count = sum(
+            1
+            for values in first_sheet.iter_rows(min_row=first_header_row + 1, values_only=True)
+            if any(value not in (None, "") for value in values)
+        )
+        if data_row_count > 10_000:
+            emit({"error": "file too large — maximum 10000 rows"})
+            return 1
+
         selected = [sheet for sheet in workbook.worksheets if sheet.title in {"OEE Data", "Station OEE", "Operator Data"} or "oee" in sheet.title.lower()]
         if not selected:
             raise ValueError("No OEE-compatible sheets were found")
@@ -218,6 +247,7 @@ def main() -> int:
                 record = row_dict(values, mapping)
                 cell = str(record.get("cell") or "").strip()
                 if not cell or not any(value not in (None, "") for value in record.values()):
+                    skipped += 1
                     continue
                 insert_oee(cursor, record)
                 merge_kpi(cursor, record)
@@ -232,7 +262,7 @@ def main() -> int:
         if connection is not None:
             connection.close()
 
-    emit({"stations": len(stations), "oee_entries": imported, "issues": 0, "errors": errors})
+    emit({"rows_imported": imported, "rows_skipped": skipped, "errors": errors})
     return 0 if imported or not errors else 1
 
 

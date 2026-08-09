@@ -1,0 +1,6 @@
+{
+  "base_url": "https://llm.eidonix.com",
+  "model": "qwen3.6-35b",
+  "timeout_seconds": 120,
+  "max_tokens": 2048
+}
