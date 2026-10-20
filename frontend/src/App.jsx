@@ -17,6 +17,7 @@ import OneByOneTab from './components/OneByOneTab'
 import LegendPanel from './components/LegendPanel'
 import WeeklyPanel from './components/WeeklyPanel'
 import OEEAnalyticsTab from './components/OEEAnalyticsTab'
+import IssueAnalyticsTab from './components/IssueAnalyticsTab'
 import AIHealthTab from './components/AIHealthTab'
 import ExecutiveSummary from './components/ExecutiveSummary'
 import SetupScreen from './components/SetupScreen'
@@ -39,6 +40,7 @@ const TABS = [
   { id: 'production',  label: '⚙ Production' },
   { id: 'productivity',label: '📊 Productivity' },
   { id: 'issues',      label: '⚠ Issues' },
+  { id: 'issue-analytics', label: '🔍 Issue Analytics' },
   { id: 'downtime',    label: '⏱ Downtime' },
   { id: 'robotpress',  label: '🤖 Robot Press' },
   { id: 'mars',        label: '🗄 MARS Data' },
@@ -390,6 +392,7 @@ export default function App() {
         {activeTab === 'production'  && <ProductionTab rows={production} resource={resource} shift={SHIFT} selectedDate={selectedDate} onRefresh={() => fetchAll(resource)} />}
         {activeTab === 'productivity'&& <ProductivityTab rows={productivity} />}
         {activeTab === 'issues'      && <IssuesTab      issues={issues} resource={resource} shift={SHIFT} onRefresh={() => fetchAll(resource)} />}
+        {activeTab === 'issue-analytics' && <IssueAnalyticsTab resource={resource} />}
         {activeTab === 'downtime'    && <DowntimeTab    data={downtime} resource={resource} selectedDate={selectedDate} onRefresh={() => fetchAll(resource)} />}
         {activeTab === 'robotpress'  && <RobotPressPanel data={robotPress} />}
         {activeTab === 'shipping'    && <ShippingPanel data={shippingStatus} />}

@@ -122,7 +122,7 @@ const DT_COLORS = {
   Maintenance: '#ff4444',
   Production:  '#ffaa00',
   Materials:   '#00d4ff',
-  Quality:     '#fb923c',
+  Quality:     '#f472b6',
 }
 
 // ── Mini horizontal bar ────────────────────────────────────────────────────────

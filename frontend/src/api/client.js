@@ -74,6 +74,12 @@ export const api = {
   issues:       (resource = 'WM15', date = new Date()) =>
                   get(`/issues?resource=${resource}&date=${dateStr(date)}`),
 
+  issuesAnalytics: (resource = 'WM15', days = 30) =>
+                  get(`/issues/analytics?resource=${resource}&days=${days}`),
+
+  oeeCauses: (days = 30) =>
+                  get(`/issues/oee-causes?days=${days}`),
+
   downtime:     (resource = 'WM15', date = new Date()) =>
                   get(`/downtime?resource=${resource}&date=${dateStr(date)}`),
 
