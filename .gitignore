@@ -56,3 +56,7 @@ linesideboard-error.log
 # AI/Codex working files
 .agents/
 .claude/
+# Added 2026-10-20: local builds, rollbacks, caches, private notes
+backend-go/*.exe
+backend-go/static.before-*/
+backend-go/static.rollback-*/

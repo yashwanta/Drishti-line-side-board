@@ -40,7 +40,7 @@ services:
   backend-go:
     environment:
       DB_HOST: postgres
-      DB_PORT: 5432
+      DB_PORT: "5432"
       DB_NAME: ${LOCAL_DB_NAME:-mesdb}
       DB_USER: ${LOCAL_DB_USER:-mesapp}
       DB_PASS: ${LOCAL_DB_PASS:-lsb-local-change-me}
